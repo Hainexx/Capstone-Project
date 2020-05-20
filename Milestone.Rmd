@@ -1,0 +1,188 @@
+---
+title: "Milestone"
+author: "Gaspare Mattarella"
+date: "17/5/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+library(stringr)
+library(tidyverse)
+library(tm)
+library(openNLP)
+library(ggplot2)
+library(RWeka)
+library(quanteda)
+setwd("~/Imparare_R/Capstone/Capstone_proj")
+```
+
+## Introduction
+
+The Data Science Capstone involves predictive text analytics. The overall objective is to help users complete sentences by analyzing the words they have entered and predicating the next word. For example, if the first few words of a text are “I want a case of …”, then the model may predict “beer” given available probabilities.
+
+The purpose of this Milestone Report is to demonstrate progress towards the end goal of this project. The specific sections are as follows:
+
+1. Load/Profile Raw Data - demonstrate progress with loading the data into R & profiling the raw data
+2. Create Sample Corpus - prepare the data prior to NLP
+3. Create N-grams to Explore Data - create n-grams & explore the word patterns
+4. Next Steps - discuss plans for creating the prediction algorighm & shiny application
+
+## Set Up
+Prepare the session by loading initial packages and clearing the global workspace.
+```{r echo=FALSE, warning=FALSE}
+con <- file("./en_US.twitter.txt", open = "r") 
+con2 <- file("./en_US.news.txt",open= "r") 
+con3 <- file("./en_US.blogs.txt", open="r")
+
+twitter <- readLines(con, encoding = "UTF-8", skipNul = TRUE)
+news <- readLines(con2, encoding = "UTF-8", skipNul = TRUE)
+blogs <- readLines(con3, encoding = "UTF-8", skipNul = TRUE)
+```
+
+
+
+```{r, include=FALSE}
+close(con) #### It's important to close the connection when you are done
+close(con2)
+close(con3)
+rm(con, con2, con3)
+```
+## Basic Summaries
+
+```{r echo=FALSE}
+
+blog_lines <- length(blogs)
+blog_words <- sum(sapply(strsplit(blogs,"\\s+"),length))
+blog_wpl <- round(blog_words/blog_lines, 2)
+
+news_lines <- length(news)
+news_words <- sum(sapply(strsplit(news,"\\s+"),length))
+news_wpl <- round(news_words/news_lines, 2)
+
+twit_lines <- length(twitter)
+twit_words <- sum(sapply(strsplit(twitter,"\\s+"),length))
+twit_wpl <- round(twit_words/twit_lines, 2)
+
+twit <-round(rbind(twit_lines,twit_words,twit_wpl))
+new <- round(rbind(news_lines,news_words,news_wpl))
+blo <- round(rbind(blog_lines,blog_words,blog_wpl))
+dt <- data.frame(twit,new,blo,
+                 row.names = c("lines","words","words per line"))
+dt
+
+```
+
+The words per line statistic is interesting. Blogs are the highest at 41.52, news is in the middle at 34.22 and twitter is the least at 12.87. This makes intuitive sense since twitter is limited to 140 characters so “tweets” are naturally more concise. In addition, it would make sense that blogs are the most verbose since this is more of a “free form” style of communication.
+
+## Sampling 
+Now I'm gonna sample the data to proced with my analysis so I can run the program smoothly. 
+
+```{r echo=FALSE}
+data_sample <- c(sample(blogs, length(blogs) * 0.01),
+                 sample(news, length(news) * 0.01),
+                 sample(twitter, length(twitter) * 0.01))
+write(data_sample ,file = "./data_sample/sample_data.txt")
+# Clean up unused objects in memory.
+gc()
+
+rm(list = ls())
+
+
+setwd("~/Imparare_R/Capstone/Capstone_proj")
+dir <- DirSource("./data_sample")
+ 
+corpus <- Corpus(dir, 
+               readerControl = list(reader = readPlain, 
+                                    language = "en_US"))
+
+```
+
+Now we've got the corpus of our analysis, a single file for further clearning and analysis. 
+This section describes the process to create a sample file (training dataset) from the three raw data files. 5% of the data was randomly sampled from the three raw data files (blogs, news, twitter). 
+
+## Preprocessing
+The cleaning procedure I will perform with the help of tm package is the following:
+
+- Removes extra whitespace
+- Remove numbers
+- Remove punctuation
+- Stemming the words
+- Convert text to lower case
+- Remove stopwords (common words such as "the", "to", "a", etc..)
+
+```{r echo=FALSE}
+corpus <- tm_map(corpus,FUN = stripWhitespace) #Removes extra whitespace 
+corpus <- tm_map(corpus,FUN = removeNumbers)
+corpus <- tm_map(corpus,FUN = removePunctuation)
+corpus <- tm_map(corpus,FUN = stemDocument)
+corpus <- tm_map(corpus, FUN =tolower)
+corpus <- tm_map(corpus,FUN = removeWords, stopwords("english"))
+saveRDS(corpus, file = "./sam.rds")
+```
+
+## Exploratory Data Analysis
+Exploratory data analysis will be performed to fulfill the primary goal for this report. Several techniques will be employed to develop an understanding of the training data which include looking at the most frequently used words, tokenizing and n-gram generation. 
+N-grams are a useful tool to identify the frequency of certain words and word patterns. 
+1-gram (Uni-gram) - Indicates the frequcy of single words
+2-gram (Bi-gram) - Indicates the frequency of two word patterns
+3-gram (Tri-gram) - Indicates the frequency of three word patterns
+
+### Word Frequencies
+A bar chart  will be constructed to illustrate unique word frequencies for uni, bi and trigrams
+
+```{r echo=FALSE}
+unigram <- NGramTokenizer(corpus, Weka_control(min = 1, max = 1))
+
+bigram <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+trigram <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+
+bigrams<- bigram(corpus)
+
+trigrams <- trigram(corpus)
+gc() #clean up some memory 
+```
+
+```{r unigr, echo=F, fig.height=5, fig.width=12, warning=FALSE}
+
+dfcs <- data.frame(factor(unigram))
+fs <- data.frame(dd = factor(dfcs$factor.unigram.))
+fc <- table(fs$dd) # frequency of values in f$c
+plot(sort(fc, 1:length(t),decreasing=TRUE)[1:15],ylab = "Frequencies", col = "darkred", main = "15 Most Common Unigrams")
+
+(sort(fc,decreasing=TRUE))[1:15]
+
+```
+
+```{r bigram, echo=FALSE, fig.height=5, fig.width=12}
+cf <- data.frame(factor(bigrams))
+j <- data.frame(d = factor(cf$factor.bigrams.))
+j <- table(j$d) # frequency of values in f$c
+plot(sort(j, decreasing=TRUE)[1:15], type="h", ylab = "Frequencies", col = "darkgreen",main = "15 Most Common Bigrams")
+
+(sort(j,decreasing=TRUE))[1:15]
+```
+
+```{r trigram, echo=FALSE, fig.height=5, fig.width=12}
+xf <- data.frame(factor(trigrams))
+b <- data.frame(d = factor(xf$factor.trigrams.))
+b <- table(b$d) # frequency of values in f$c
+plot(sort(b, decreasing=TRUE)[1:15], type="h", ylab = "Frequencies", col = "darkblue",main = "15 Most Common Trigrams")
+
+(sort(b,decreasing=TRUE))[1:15]
+```
+
+## Looking Forward 
+
+The final deliverable in the capstone project is to build a predictive algorithm that will be deployed as a Shiny app for the user interface. The Shiny app should take as input a phrase (multiple words) in a text box input and output a prediction of the next word.
+
+The predictive algorithm will be developed using an n-gram model with a word frequency lookup similar to that performed in the exploratory data analysis section of this report. A strategy will be built based on the knowledge gathered during the exploratory analysis. For example, as n increased for each n-gram, the frequency decreased for each of its terms. So one possible strategy may be to construct the model to first look for the unigram that would follow from the entered text. Once a full term is entered followed by a space, find the most common bigram model and so on.
+
+Another possible strategy may be to predict the next word using the trigram model. If no matching trigram can be found, then the algorithm would check the bigram model. If still not found, use the unigram model.
+
+The final strategy will be based on the one that increases efficiency and provides the best accuracy.
+
+
+## Appendix 
+the code for this report is available on GitHub at the following link: 
+https://github.com/Hainexx/Capstone
